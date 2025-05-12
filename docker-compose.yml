@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Django service
+  django:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django
+    command: ["./wait-for-it.sh", "postgres:5432", "--", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+    volumes:
+      - .:/app
+      - ./media:/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis  # No mapping needed here
+    env_file:
+      - .env  # Ensures environment variables from .env are loaded
+
+  # Celery worker service
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: celery
+    command: ["celery", "-A", "core", "worker", "--loglevel=info"]
+    depends_on:
+      - django
+      - redis
+      - postgres
+    env_file:
+      - .env  # Celery will also have access to the environment variables
+
+  # Redis service
+  redis:
+    image: "redis:latest"
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  # PostgreSQL service
+  postgres:
+    image: "postgres:13"
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}"]
+      interval: 5s  # Check every 5 seconds
+      retries: 5     # Retry 5 times before considering the container unhealthy
+      start_period: 10s  # Wait 10 seconds before starting health checks
+      timeout: 5s  # Timeout for each check
+
+volumes:
+  postgres_data:
